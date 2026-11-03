@@ -8,8 +8,9 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname)); // 안전장치
 
-// ===== 게임 규칙 (어제 만든 것과 동일) =====
+// ===== 게임 규칙 =====
 const SUITS = ['S','H','D','C'];
 const RANKS = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
 const RANK_VALUE = Object.fromEntries(RANKS.map((r,i)=>[r,i+2]));
@@ -132,7 +133,7 @@ function aiArrange(hand){
 }
 
 // ===== 방 관리 =====
-const rooms = {}; // { roomId: { players: [{id,name,hand,arrangement,submitted}], state } }
+const rooms = {};
 
 function makeRoomId(){ return Math.random().toString(36).slice(2,7).toUpperCase(); }
 
@@ -191,7 +192,6 @@ function publicRoom(room){
     round: room.round,
     players: room.players.map(p=>({
       name: p.name, submitted: p.submitted,
-      // 제출 전에는 다른 사람 카드 안 보임
       hand: p.submitted ? p.hand : null
     }))
   };
@@ -201,14 +201,12 @@ function startRound(room){
   const deck = shuffle(createDeck());
   const humanCount = room.players.length;
   
-  // 1. 인간 플레이어들에게 카드 13장씩 분배
   room.players.forEach((p,i)=>{
     p.hand = deck.slice(i*13, i*13+13);
     p.arrangement = null;
     p.submitted = false;
   });
 
-  // 2. 부족한 자리는 AI 카드로 채움 (무조건 4명이 되게)
   room.aiHands = [];
   for(let i=humanCount; i<4; i++) {
     room.aiHands.push(deck.slice(i*13, i*13+13));
@@ -217,42 +215,39 @@ function startRound(room){
   room.started = true;
   room.round++;
 
-  // 3. 각 인간 플레이어에게 자기 패만 보여줌
   room.players.forEach(p=>{
     io.to(p.id).emit('your-hand', { hand: p.hand, round: room.round });
   });
 
-  // 4. 화면 갱신
   room.players.forEach(p=>io.to(p.id).emit('room-update', publicRoom(room)));
-  
-  // 5. 혼자일 경우, 시작하자마자 AI들이 자동으로 제출하도록 처리
-  // (인간이 1명뿐일 때 바로 라운드가 끝나도록 유도)
-  if (humanCount === 1) {
-    // AI들이 이미 제출한 것으로 상태 변경
-    room.players[0].submitted = false; // 인간은 아직 제출 안 함
-    // (endRound는 인간이 제출했을 때 호출됨)
-  }
 }
 
 function endRound(room){
-  // AI 배치 생성
   const aiArrs = (room.aiHands||[]).map(h=>aiArrange(h));
   const allHands = [...room.players.map(p=>p.arrangement), ...aiArrs];
   const names = [...room.players.map(p=>p.name), ...aiArrs.map((_,i)=>'AI'+(i+1))];
   const n = allHands.length;
   const round = names.map(()=>0);
-  const pairs = [];
-  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+  
+  const detailedPairs = [];
+
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
     const d = duelDetail(allHands[i], allHands[j]);
     round[i]+=d.pts[0]; round[j]+=d.pts[1];
-    pairs.push({i,j,d});
+    
+    detailedPairs.push({
+      i, j,
+      nameA: names[i], nameB: names[j],
+      scoreA: d.pts[0], scoreB: d.pts[1],
+      aSpecial: d.aSpecial, bSpecial: d.bSpecial
+    });
   }
-  io.to(room.players[0].id).emit('noop'); // 트리거용
-  // 모든 플레이어에게 결과 브로드캐스트
+
   room.players.forEach((p, idx)=>{
-    const myPairs = pairs.filter(pr=>pr.i===idx||pr.j===idx);
     io.to(p.id).emit('round-result', {
-      names, hands: allHands, round, pairs: myPairs, myIndex: idx
+      names, hands: allHands, round, 
+      detailedPairs: detailedPairs,
+      myIndex: idx
     });
   });
   room.started = false;
