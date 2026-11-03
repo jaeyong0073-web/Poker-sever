@@ -99,7 +99,7 @@ function duelDetail(handA, handB){
   return { pts:[zoneScoreFromWins(aw,al)+aS.bonus, zoneScoreFromWins(bw,bl)+bS.bonus], aSpecial:aS, bSpecial:bS };
 }
 
-// ===== AI 배치 (완전 탐색, 파울 없음) =====
+// ===== AI 배치 =====
 function aiArrange(hand){
   const n=hand.length;
   let best=null, bestEval=null;
@@ -137,7 +137,29 @@ const rooms = {};
 
 function makeRoomId(){ return Math.random().toString(36).slice(2,7).toUpperCase(); }
 
+// 현재 열려있는 방 목록을 모든 클라이언트에게 전송하는 함수
+function broadcastRoomList(){
+  const list = Object.keys(rooms).map(id => {
+    const r = rooms[id];
+    return {
+      id: id,
+      playerCount: r.players.length,
+      players: r.players.map(p => p.name),
+      started: r.started,
+      round: r.round
+    };
+  });
+  io.emit('room-list', list);
+}
+
 io.on('connection', socket => {
+  // 접속하자마자 방 목록 보내주기
+  const list = Object.keys(rooms).map(id => {
+    const r = rooms[id];
+    return { id, playerCount: r.players.length, players: r.players.map(p=>p.name), started: r.started, round: r.round };
+  });
+  socket.emit('room-list', list);
+
   socket.on('create-room', ({name}, cb) => {
     const id = makeRoomId();
     rooms[id] = { players: [{ id: socket.id, name, hand:[], arrangement:null, submitted:false }], started:false, round:0 };
@@ -145,23 +167,28 @@ io.on('connection', socket => {
     socket.roomId = id;
     cb({ ok:true, roomId:id });
     io.to(id).emit('room-update', publicRoom(rooms[id]));
+    broadcastRoomList();
   });
 
   socket.on('join-room', ({name, roomId}, cb) => {
     const room = rooms[roomId];
     if(!room) return cb({ ok:false, msg:'방이 없습니다' });
     if(room.players.length >= 4) return cb({ ok:false, msg:'방이 가득 찼습니다' });
+    if(room.started) return cb({ ok:false, msg:'이미 게임이 시작된 방입니다' });
+    
     room.players.push({ id: socket.id, name, hand:[], arrangement:null, submitted:false });
     socket.join(roomId);
     socket.roomId = roomId;
     cb({ ok:true });
     io.to(roomId).emit('room-update', publicRoom(room));
+    broadcastRoomList();
   });
 
   socket.on('start-game', () => {
     const room = rooms[socket.roomId];
     if(!room || room.players.length < 1) return;
     startRound(room);
+    broadcastRoomList();
   });
 
   socket.on('submit', (arrangement) => {
@@ -183,6 +210,7 @@ io.on('connection', socket => {
     rooms[roomId].players = rooms[roomId].players.filter(p=>p.id!==socket.id);
     if(rooms[roomId].players.length===0) delete rooms[roomId];
     else io.to(roomId).emit('room-update', publicRoom(rooms[roomId]));
+    broadcastRoomList();
   });
 });
 
@@ -190,10 +218,7 @@ function publicRoom(room){
   return {
     started: room.started,
     round: room.round,
-    players: room.players.map(p=>({
-      name: p.name, submitted: p.submitted,
-      hand: p.submitted ? p.hand : null
-    }))
+    players: room.players.map(p=>({ name: p.name, submitted: p.submitted, hand: p.submitted ? p.hand : null }))
   };
 }
 
@@ -208,18 +233,13 @@ function startRound(room){
   });
 
   room.aiHands = [];
-  for(let i=humanCount; i<4; i++) {
-    room.aiHands.push(deck.slice(i*13, i*13+13));
-  }
+  for(let i=humanCount; i<4; i++) room.aiHands.push(deck.slice(i*13, i*13+13));
 
   room.started = true;
   room.round++;
 
-  room.players.forEach(p=>{
-    io.to(p.id).emit('your-hand', { hand: p.hand, round: room.round });
-  });
-
-  room.players.forEach(p=>io.to(p.id).emit('room-update', publicRoom(room)));
+  room.players.forEach(p=> io.to(p.id).emit('your-hand', { hand: p.hand, round: room.round }));
+  room.players.forEach(p=> io.to(p.id).emit('room-update', publicRoom(room)));
 }
 
 function endRound(room){
@@ -228,27 +248,16 @@ function endRound(room){
   const names = [...room.players.map(p=>p.name), ...aiArrs.map((_,i)=>'AI'+(i+1))];
   const n = allHands.length;
   const round = names.map(()=>0);
-  
   const detailedPairs = [];
 
   for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
     const d = duelDetail(allHands[i], allHands[j]);
     round[i]+=d.pts[0]; round[j]+=d.pts[1];
-    
-    detailedPairs.push({
-      i, j,
-      nameA: names[i], nameB: names[j],
-      scoreA: d.pts[0], scoreB: d.pts[1],
-      aSpecial: d.aSpecial, bSpecial: d.bSpecial
-    });
+    detailedPairs.push({ i, j, nameA: names[i], nameB: names[j], scoreA: d.pts[0], scoreB: d.pts[1], aSpecial: d.aSpecial, bSpecial: d.bSpecial });
   }
 
   room.players.forEach((p, idx)=>{
-    io.to(p.id).emit('round-result', {
-      names, hands: allHands, round, 
-      detailedPairs: detailedPairs,
-      myIndex: idx
-    });
+    io.to(p.id).emit('round-result', { names, hands: allHands, round, detailedPairs: detailedPairs, myIndex: idx });
   });
   room.started = false;
 }
