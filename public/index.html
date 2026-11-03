@@ -215,6 +215,7 @@ function makeCardEl(card, fromZone){
   div.draggable = !submitted;
   div.dataset.key = cardKey(card);
 
+  // ===== 기존 PC용 드래그 =====
   div.addEventListener('dragstart', e => {
     if(submitted) { e.preventDefault(); return; }
     if(draggingKey && draggingKey !== cardKey(card)) { e.preventDefault(); return; }
@@ -227,6 +228,76 @@ function makeCardEl(card, fromZone){
   div.addEventListener('dragend', () => {
     draggingKey = null;
     div.classList.remove('dragging');
+  });
+
+  // ===== 새로 추가: 모바일 터치용 드래그 =====
+  let touchStartX = 0, touchStartY = 0, isTouchDragging = false;
+  
+  div.addEventListener('touchstart', e => {
+    if(submitted) return;
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    isTouchDragging = false;
+    // 손가락으로 잡고 있는 카드 표시
+    draggingKey = cardKey(card);
+    div.classList.add('dragging');
+  }, { passive: true });
+
+  div.addEventListener('touchmove', e => {
+    if(submitted || !draggingKey) return;
+    e.preventDefault(); // 화면 스크롤 방지
+    const touch = e.touches[0];
+    
+    // 손가락이 일정 거리 이상 움직였을 때만 드래그로 인정
+    if(Math.abs(touch.clientX - touchStartX) > 5 || Math.abs(touch.clientY - touchStartY) > 5){
+      isTouchDragging = true;
+    }
+    
+    if(isTouchDragging){
+      // 손가락 아래에 있는 영역(슬롯)이 무엇인지 찾기
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      // 기존 강조 표시 지우기
+      document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+      
+      if(el){
+        // 가장 가까운 슬롯이나 손패 영역 찾기
+        const dropZone = el.closest('.slot') || el.closest('#myHand');
+        if(dropZone){
+          const box = dropZone.querySelector ? (dropZone.querySelector('.cards') || dropZone) : dropZone;
+          if(box) box.classList.add('drop-target');
+        }
+      }
+    }
+  }, { passive: false });
+
+  div.addEventListener('touchend', e => {
+    if(submitted) return;
+    div.classList.remove('dragging');
+    
+    if(isTouchDragging){
+      const touch = e.changedTouches[0];
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      
+      document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+      
+      if(el){
+        const dropZone = el.closest('.slot') || el.closest('#myHand');
+        if(dropZone){
+          const zone = dropZone.dataset.zone || 'hand';
+          handleDrop(zone, JSON.stringify({ key: cardKey(card), fromZone }));
+        }
+      }
+    }
+    draggingKey = null;
+    isTouchDragging = false;
+  });
+
+  div.addEventListener('touchcancel', () => {
+    div.classList.remove('dragging');
+    document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+    draggingKey = null;
+    isTouchDragging = false;
   });
 
   div.addEventListener('dblclick', e => {
