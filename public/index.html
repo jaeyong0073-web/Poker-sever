@@ -86,6 +86,7 @@
   <div id="result"></div>
   <div id="nextRoundArea" style="display:none; text-align:center; margin-top:20px; margin-bottom: 40px;">
     <button id="nextRoundBtn" style="padding:12px 24px; font-size:16px; background:#ffb300; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">다음 라운드 시작</button>
+  </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -145,9 +146,7 @@ socket.on('room-update', room => {
     $('result').innerHTML = '';
     const isHost = room.players[0].name === myName;
     $('startBtn').style.display = isHost ? 'block' : 'none';
-    
-    // [수정된 부분] 혼자서도 시작 버튼이 눌리도록 무조건 활성화
-    $('startBtn').disabled = false; 
+    $('startBtn').disabled = false;
     $('lobbyMsg').textContent = `인원: ${room.players.length}/4 (혼자 테스트 시 AI가 채워집니다)`;
   }
 });
@@ -159,9 +158,9 @@ socket.on('your-hand', data => {
   sortHand();
   renderAll();
   $('lobby').style.display = 'none';
-  $('nextRoundArea').style.display = 'none'; // 👈 이 줄을 새로 추가!
-  $('result').innerHTML = '';               // 👈 이 줄도 새로 추가!
   $('playArea').style.display = 'block';
+  $('nextRoundArea').style.display = 'none';
+  $('result').innerHTML = '';
   $('submitBtn').disabled = false;
   $('submitBtn').textContent = '제출';
   $('status').textContent = `라운드 ${data.round} - 카드를 3/5/5로 나눠 제출하세요`;
@@ -221,7 +220,6 @@ function makeCardEl(card, fromZone){
   div.draggable = !submitted;
   div.dataset.key = cardKey(card);
 
-  // ===== 기존 PC용 드래그 =====
   div.addEventListener('dragstart', e => {
     if(submitted) { e.preventDefault(); return; }
     if(draggingKey && draggingKey !== cardKey(card)) { e.preventDefault(); return; }
@@ -230,44 +228,28 @@ function makeCardEl(card, fromZone){
     e.dataTransfer.setData('text/plain', JSON.stringify({ key: cardKey(card), fromZone }));
     div.classList.add('dragging');
   });
-  
-  div.addEventListener('dragend', () => {
-    draggingKey = null;
-    div.classList.remove('dragging');
-  });
+  div.addEventListener('dragend', () => { draggingKey = null; div.classList.remove('dragging'); });
 
-  // ===== 새로 추가: 모바일 터치용 드래그 =====
+  // 터치 이벤트
   let touchStartX = 0, touchStartY = 0, isTouchDragging = false;
-  
   div.addEventListener('touchstart', e => {
     if(submitted) return;
     const touch = e.touches[0];
-    touchStartX = touch.clientX;
-    touchStartY = touch.clientY;
-    isTouchDragging = false;
-    // 손가락으로 잡고 있는 카드 표시
-    draggingKey = cardKey(card);
+    touchStartX = touch.clientX; touchStartY = touch.clientY;
+    isTouchDragging = false; draggingKey = cardKey(card);
     div.classList.add('dragging');
   }, { passive: true });
 
   div.addEventListener('touchmove', e => {
     if(submitted || !draggingKey) return;
-    e.preventDefault(); // 화면 스크롤 방지
+    e.preventDefault();
     const touch = e.touches[0];
-    
-    // 손가락이 일정 거리 이상 움직였을 때만 드래그로 인정
-    if(Math.abs(touch.clientX - touchStartX) > 5 || Math.abs(touch.clientY - touchStartY) > 5){
-      isTouchDragging = true;
-    }
+    if(Math.abs(touch.clientX - touchStartX) > 5 || Math.abs(touch.clientY - touchStartY) > 5) isTouchDragging = true;
     
     if(isTouchDragging){
-      // 손가락 아래에 있는 영역(슬롯)이 무엇인지 찾기
       const el = document.elementFromPoint(touch.clientX, touch.clientY);
-      // 기존 강조 표시 지우기
       document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
-      
       if(el){
-        // 가장 가까운 슬롯이나 손패 영역 찾기
         const dropZone = el.closest('.slot') || el.closest('#myHand');
         if(dropZone){
           const box = dropZone.querySelector ? (dropZone.querySelector('.cards') || dropZone) : dropZone;
@@ -280,32 +262,25 @@ function makeCardEl(card, fromZone){
   div.addEventListener('touchend', e => {
     if(submitted) return;
     div.classList.remove('dragging');
-    
     if(isTouchDragging){
       const touch = e.changedTouches[0];
       const el = document.elementFromPoint(touch.clientX, touch.clientY);
-      
       document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
-      
       if(el){
         const dropZone = el.closest('.slot') || el.closest('#myHand');
-        if(dropZone){
-          const zone = dropZone.dataset.zone || 'hand';
-          handleDrop(zone, JSON.stringify({ key: cardKey(card), fromZone }));
-        }
+        if(dropZone) handleDrop(dropZone.dataset.zone || 'hand', JSON.stringify({ key: cardKey(card), fromZone }));
       }
     }
-    draggingKey = null;
-    isTouchDragging = false;
+    draggingKey = null; isTouchDragging = false;
   });
 
   div.addEventListener('touchcancel', () => {
     div.classList.remove('dragging');
     document.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
-    draggingKey = null;
-    isTouchDragging = false;
+    draggingKey = null; isTouchDragging = false;
   });
 
+  // 더블클릭 반환
   div.addEventListener('dblclick', e => {
     if(submitted || fromZone === 'hand') return;
     e.preventDefault();
@@ -402,9 +377,10 @@ $('submitBtn').onclick = () => {
 
 // ===== 결과 렌더링 =====
 function renderResults(data){
-  const { names, hands, round, pairs, myIndex } = data;
+  const { names, hands, round, detailedPairs, myIndex } = data;
   const html = [];
 
+  // 1. 카드 공개
   html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">🃏 카드 공개</h2>`);
   names.forEach((n, idx) => {
     const h = hands[idx];
@@ -421,21 +397,44 @@ function renderResults(data){
     html.push(`</div>`);
   });
 
+  // 2. 나의 대결 상세
+  html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">🎯 나의 대결 상세</h2>`);
+  const myMatches = detailedPairs.filter(m => m.i === myIndex || m.j === myIndex);
+  
+  myMatches.forEach(m => {
+    const isMeA = (m.i === myIndex);
+    const oppName = isMeA ? m.nameB : m.nameA;
+    const myScore = isMeA ? m.scoreA : m.scoreB;
+    const opScore = isMeA ? m.scoreB : m.scoreA;
+    const mySpecial = isMeA ? m.aSpecial : m.bSpecial;
+    const opSpecial = isMeA ? m.bSpecial : m.aSpecial;
+
+    html.push(`<div class="reveal-block" style="padding:12px; margin-bottom:8px;">`);
+    html.push(`<h3 style="margin-bottom:10px; color:#ffb300;">나 vs ${oppName} — <span style="color:${myScore>opScore?'#7fffa0':(myScore<opScore?'#ff8a8a':'#fff')}">${myScore} : ${opScore}</span></h3>`);
+    
+    if(mySpecial && mySpecial.details.length > 0){
+      html.push(`<div style="font-size:12px; color:#7fffa0; margin-bottom:4px;">🎁 내 특수 보너스: ${mySpecial.details.join(', ')}</div>`);
+    }
+    if(opSpecial && opSpecial.details.length > 0){
+      html.push(`<div style="font-size:12px; color:#ff8a8a; margin-bottom:4px;">🎁 상대 특수 보너스: ${opSpecial.details.join(', ')}</div>`);
+    }
+    html.push(`</div>`);
+  });
+
+  // 3. 점수판
   html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">📊 이번 라운드 점수</h2>`);
   html.push(`<div class="reveal-block"><table class="score-table">
     <tr><th>플레이어</th><th>이번 라운드</th></tr>`);
   names.forEach((n, i) => {
     const cls = round[i] > 0 ? 'win' : round[i] < 0 ? 'lose' : '';
     const str = round[i] >= 0 ? '+' + round[i] : String(round[i]);
-    html.push(`<tr><td>${n}</td><td class="${cls}">${str}</td></tr>`);
+    html.push(`<tr><td>${n}${i===myIndex?' (나)':''}</td><td class="${cls}">${str}</td></tr>`);
   });
   html.push(`</table></div>`);
 
   $('result').innerHTML = html.join('');
   $('status').textContent = '라운드 종료!';
   $('playArea').style.display = 'none';
-  
-  // 결과 화면에서 '다음 라운드' 버튼 보이기
   $('nextRoundArea').style.display = 'block';
 }
 
@@ -443,7 +442,7 @@ function renderResults(data){
 $('nextRoundBtn').onclick = () => {
   $('nextRoundArea').style.display = 'none';
   $('result').innerHTML = '';
-  socket.emit('start-game'); // 서버에 다시 시작 요청
+  socket.emit('start-game');
 };
 </script>
 </body>
