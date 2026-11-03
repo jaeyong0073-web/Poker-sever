@@ -159,7 +159,7 @@ io.on('connection', socket => {
 
   socket.on('start-game', () => {
     const room = rooms[socket.roomId];
-    if(!room || room.players.length < 2) return;
+    if(!room || room.players.length < 1) return;
     startRound(room);
   });
 
