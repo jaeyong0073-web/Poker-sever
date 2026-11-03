@@ -143,7 +143,9 @@ socket.on('room-update', room => {
     $('result').innerHTML = '';
     const isHost = room.players[0].name === myName;
     $('startBtn').style.display = isHost ? 'block' : 'none';
-    $('startBtn').disabled = false;
+    
+    // [수정된 부분] 혼자서도 시작 버튼이 눌리도록 무조건 활성화
+    $('startBtn').disabled = false; 
     $('lobbyMsg').textContent = `인원: ${room.players.length}/4 (혼자 테스트 시 AI가 채워집니다)`;
   }
 });
