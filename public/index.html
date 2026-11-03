@@ -42,14 +42,27 @@
   #loginBox { background: rgba(0,0,0,.5); padding: 20px; border-radius: 10px; max-width: 400px; margin: 40px auto; text-align: center; }
   #loginBox input { width: 100%; padding: 10px; margin: 5px 0; border-radius: 6px; border: none; font-size: 16px; }
   #loginBox button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 6px; border: none; background: #ffb300; font-weight: bold; font-size: 16px; cursor: pointer; }
+  
+  /* 방 목록 스타일 추가 */
+  .room-item { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,.1); padding: 10px; margin-bottom: 8px; border-radius: 6px; cursor: pointer; transition: background .2s; }
+  .room-item:hover { background: rgba(255,255,255,.2); }
+  .room-item.full { opacity: 0.5; cursor: not-allowed; }
+  .room-players { font-size: 12px; color: #a5d6a7; }
 </style>
 </head>
 <body>
 <div id="loginBox">
   <h2 style="margin-top:0;">13포커 온라인</h2>
   <input id="nameInput" placeholder="닉네임" maxlength="10" />
-  <input id="roomInput" placeholder="방 코드 (새로 만들려면 비워두세요)" maxlength="10" />
-  <button id="enterBtn">입장</button>
+  <button id="createRoomBtn" style="background:#7fffa0;">새 방 만들기</button>
+  
+  <div style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,.2); padding-top: 20px;">
+    <h3 style="margin-top:0; font-size: 16px;">참가할 방 선택</h3>
+    <div id="roomList" style="max-height: 200px; overflow-y: auto; text-align: left;">
+      <!-- 방 목록이 여기에 표시됩니다 -->
+      <div style="text-align:center; font-size:13px; opacity:0.7;">열려있는 방이 없습니다.</div>
+    </div>
+  </div>
 </div>
 
 <div id="gameArea" style="display:none;">
@@ -107,26 +120,49 @@ let roomState = null;
 const $ = id => document.getElementById(id);
 const cardKey = c => c.r + c.s;
 
-// ===== 로그인 및 방 생성/참여 =====
-$('enterBtn').onclick = () => {
+// ===== 방 목록 수신 및 렌더링 =====
+socket.on('room-list', list => {
+  const box = $('roomList');
+  if(list.length === 0){
+    box.innerHTML = '<div style="text-align:center; font-size:13px; opacity:0.7;">열려있는 방이 없습니다.</div>';
+    return;
+  }
+  box.innerHTML = list.map(r => {
+    const isFull = r.playerCount >= 4 || r.started;
+    const statusText = r.started ? '게임 중' : `${r.playerCount}/4명`;
+    return `
+      <div class="room-item ${isFull ? 'full' : ''}" onclick="joinRoom('${r.id}')">
+        <div>
+          <strong>방 코드: ${r.id}</strong> <span style="font-size:11px; opacity:0.8;">(${statusText})</span><br>
+          <span class="room-players">👤 ${r.players.join(', ')}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+});
+
+// 방 클릭 시 참가
+window.joinRoom = (roomId) => {
   myName = $('nameInput').value.trim();
-  const r = $('roomInput').value.trim().toUpperCase();
+  if(!myName) return alert('닉네임을 먼저 입력하세요');
+  
+  socket.emit('join-room', { name: myName, roomId }, res => {
+    if(!res.ok) return alert(res.msg);
+    myRoomId = roomId;
+    showGame();
+  });
+};
+
+// 새 방 만들기
+$('createRoomBtn').onclick = () => {
+  myName = $('nameInput').value.trim();
   if(!myName) return alert('닉네임을 입력하세요');
   
-  if(r){
-    socket.emit('join-room', { name: myName, roomId: r }, res => {
-      if(!res.ok) return alert(res.msg);
-      myRoomId = r;
-      showGame();
-    });
-  } else {
-    socket.emit('create-room', { name: myName }, res => {
-      if(!res.ok) return alert(res.msg);
-      myRoomId = res.roomId;
-      showGame();
-      alert('방 코드: ' + myRoomId + '\n친구들에게 이 코드를 알려주세요!');
-    });
-  }
+  socket.emit('create-room', { name: myName }, res => {
+    if(!res.ok) return alert(res.msg);
+    myRoomId = res.roomId;
+    showGame();
+  });
 };
 
 function showGame(){
@@ -380,7 +416,6 @@ function renderResults(data){
   const { names, hands, round, detailedPairs, myIndex } = data;
   const html = [];
 
-  // 1. 카드 공개
   html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">🃏 카드 공개</h2>`);
   names.forEach((n, idx) => {
     const h = hands[idx];
@@ -397,7 +432,6 @@ function renderResults(data){
     html.push(`</div>`);
   });
 
-  // 2. 나의 대결 상세
   html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">🎯 나의 대결 상세</h2>`);
   const myMatches = detailedPairs.filter(m => m.i === myIndex || m.j === myIndex);
   
@@ -421,7 +455,6 @@ function renderResults(data){
     html.push(`</div>`);
   });
 
-  // 3. 점수판
   html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">📊 이번 라운드 점수</h2>`);
   html.push(`<div class="reveal-block"><table class="score-table">
     <tr><th>플레이어</th><th>이번 라운드</th></tr>`);
