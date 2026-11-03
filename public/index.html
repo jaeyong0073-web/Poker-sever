@@ -143,8 +143,8 @@ socket.on('room-update', room => {
     $('result').innerHTML = '';
     const isHost = room.players[0].name === myName;
     $('startBtn').style.display = isHost ? 'block' : 'none';
-    $('startBtn').disabled = room.players.length < 2;
-    $('lobbyMsg').textContent = `인원: ${room.players.length}/4` + (room.players.length < 2 ? ' (최소 2명 필요)' : '');
+    $('startBtn').disabled = false;
+    $('lobbyMsg').textContent = `인원: ${room.players.length}/4 (혼자 테스트 시 AI가 채워집니다)`;
   }
 });
 
