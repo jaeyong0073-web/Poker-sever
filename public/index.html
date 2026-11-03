@@ -159,6 +159,8 @@ socket.on('your-hand', data => {
   sortHand();
   renderAll();
   $('lobby').style.display = 'none';
+  $('nextRoundArea').style.display = 'none'; // 👈 이 줄을 새로 추가!
+  $('result').innerHTML = '';               // 👈 이 줄도 새로 추가!
   $('playArea').style.display = 'block';
   $('submitBtn').disabled = false;
   $('submitBtn').textContent = '제출';
@@ -432,7 +434,17 @@ function renderResults(data){
   $('result').innerHTML = html.join('');
   $('status').textContent = '라운드 종료!';
   $('playArea').style.display = 'none';
+  
+  // 결과 화면에서 '다음 라운드' 버튼 보이기
+  $('nextRoundArea').style.display = 'block';
 }
+
+// ===== 다음 라운드 시작 이벤트 =====
+$('nextRoundBtn').onclick = () => {
+  $('nextRoundArea').style.display = 'none';
+  $('result').innerHTML = '';
+  socket.emit('start-game'); // 서버에 다시 시작 요청
+};
 </script>
 </body>
 </html>
