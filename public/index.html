@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>13포커 - 온라인 멀티플레이</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: sans-serif; margin: 0; padding: 16px; background: #1b5e20; color: #fff; }
+  header { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 12px; flex-wrap: wrap; gap: 6px; }
+  #players { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  #players div { background: rgba(0,0,0,.3); padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  .toolbar { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+  .toolbar button { width: auto; padding: 8px 12px; font-size: 13px; border-radius: 6px; border: none; background: #ffb300; color: #000; font-weight: bold; cursor: pointer; margin: 0; }
+  .toolbar button.active { background: #fff; }
+  #myHand { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 16px; min-height: 60px; padding: 8px; background: rgba(0,0,0,.15); border-radius: 8px; }
+  .card { width: 44px; height: 62px; background: #fff; color: #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: grab; user-select: none; font-size: 14px; touch-action: none; transition: transform .08s; -webkit-user-drag: element; }
+  .card.red { color: #c62828; }
+  .card:active { cursor: grabbing; }
+  .card.dragging { opacity: .4; transform: scale(.95); }
+  .card.small { width: 32px; height: 46px; font-size: 12px; cursor: default; }
+  .card.small:active { cursor: default; }
+  .slots { display: flex; gap: 8px; flex-wrap: wrap; }
+  .slot { flex: 1; min-width: 140px; background: rgba(0,0,0,.25); padding: 8px; border-radius: 8px; min-height: 100px; }
+  .slot h3 { font-size: 13px; margin: 0 0 6px; }
+  .slot .cards { display: flex; flex-wrap: wrap; gap: 4px; min-height: 62px; }
+  .slot.drop-target { background: rgba(255,179,0,.3); outline: 2px dashed #ffb300; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .actions button { flex: 1; padding: 12px; font-size: 16px; border-radius: 8px; border: none; background: #ffb300; font-weight: bold; cursor: pointer; color: #000; }
+  .actions button:disabled { background: #777; color: #ccc; cursor: not-allowed; }
+  #result { margin-top: 20px; }
+  .reveal-block { background: rgba(0,0,0,.3); padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+  .reveal-block h3 { font-size: 14px; margin: 0 0 8px; }
+  .reveal-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+  .reveal-row .label { width: 60px; font-size: 12px; opacity: .85; }
+  .score-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+  .score-table th, .score-table td { padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,.15); text-align: center; }
+  .score-table th { background: rgba(255,255,255,.1); }
+  .win { color: #7fffa0; font-weight: bold; }
+  .lose { color: #ff8a8a; }
+  .total-row { font-weight: bold; background: rgba(255,179,0,.15); }
+  #loginBox { background: rgba(0,0,0,.5); padding: 20px; border-radius: 10px; max-width: 400px; margin: 40px auto; text-align: center; }
+  #loginBox input { width: 100%; padding: 10px; margin: 5px 0; border-radius: 6px; border: none; font-size: 16px; }
+  #loginBox button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 6px; border: none; background: #ffb300; font-weight: bold; font-size: 16px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="loginBox">
+  <h2 style="margin-top:0;">13포커 온라인</h2>
+  <input id="nameInput" placeholder="닉네임" maxlength="10" />
+  <input id="roomInput" placeholder="방 코드 (새로 만들려면 비워두세요)" maxlength="10" />
+  <button id="enterBtn">입장</button>
+</div>
+
+<div id="gameArea" style="display:none;">
+  <header>
+    <span id="roomLabel"></span>
+    <span id="status"></span>
+  </header>
+  <div id="players"></div>
+  
+  <div id="lobby" style="display:none; text-align:center; margin-top:20px;">
+    <h2>대기 중...</h2>
+    <p id="lobbyMsg">친구들을 기다리는 중입니다.</p>
+    <button id="startBtn" style="padding:12px 24px; font-size:16px; background:#ffb300; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">게임 시작</button>
+  </div>
+
+  <div id="playArea" style="display:none;">
+    <div class="toolbar">
+      <span style="font-size:13px;">정렬:</span>
+      <button id="sortSuit">문양별</button>
+      <button id="sortRank">숫자별</button>
+      <button id="sortToggle">오름차순 ↑</button>
+    </div>
+    <div id="myHand"></div>
+    <div class="slots">
+      <div class="slot" data-zone="front"><h3>앞 (3장)</h3><div class="cards"></div></div>
+      <div class="slot" data-zone="middle"><h3>중간 (5장)</h3><div class="cards"></div></div>
+      <div class="slot" data-zone="back"><h3>뒤 (5장)</h3><div class="cards"></div></div>
+    </div>
+    <div class="actions">
+      <button id="submitBtn">제출</button>
+    </div>
+  </div>
+
+  <div id="result"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const SUIT_SYMBOL = { S:'♠', H:'♥', D:'♦', C:'♣' };
+const SUIT_ORDER = { S:0, H:1, D:2, C:3 };
+const RANK_VALUE = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'T':10,'J':11,'Q':12,'K':13,'A':14};
+
+let myName = '', myRoomId = '';
+let myHand = [];
+let arrangement = {front:[],middle:[],back:[]};
+let submitted = false;
+let sortMode = 'suit', sortAsc = true;
+let draggingKey = null;
+let roomState = null;
+
+const $ = id => document.getElementById(id);
+const cardKey = c => c.r + c.s;
+
+// ===== 로그인 및 방 생성/참여 =====
+$('enterBtn').onclick = () => {
+  myName = $('nameInput').value.trim();
+  const r = $('roomInput').value.trim().toUpperCase();
+  if(!myName) return alert('닉네임을 입력하세요');
+  
+  if(r){
+    socket.emit('join-room', { name: myName, roomId: r }, res => {
+      if(!res.ok) return alert(res.msg);
+      myRoomId = r;
+      showGame();
+    });
+  } else {
+    socket.emit('create-room', { name: myName }, res => {
+      if(!res.ok) return alert(res.msg);
+      myRoomId = res.roomId;
+      showGame();
+      alert('방 코드: ' + myRoomId + '\n친구들에게 이 코드를 알려주세요!');
+    });
+  }
+};
+
+function showGame(){
+  $('loginBox').style.display = 'none';
+  $('gameArea').style.display = 'block';
+  $('roomLabel').textContent = '방 코드: ' + myRoomId;
+}
+
+// ===== 서버 이벤트 수신 =====
+socket.on('room-update', room => {
+  roomState = room;
+  renderPlayers();
+  
+  if(!room.started && room.players.length >= 1) {
+    $('lobby').style.display = 'block';
+    $('playArea').style.display = 'none';
+    $('result').innerHTML = '';
+    const isHost = room.players[0].name === myName;
+    $('startBtn').style.display = isHost ? 'block' : 'none';
+    $('startBtn').disabled = room.players.length < 2;
+    $('lobbyMsg').textContent = `인원: ${room.players.length}/4` + (room.players.length < 2 ? ' (최소 2명 필요)' : '');
+  }
+});
+
+socket.on('your-hand', data => {
+  myHand = data.hand;
+  arrangement = {front:[],middle:[],back:[]};
+  submitted = false;
+  sortHand();
+  renderAll();
+  $('lobby').style.display = 'none';
+  $('playArea').style.display = 'block';
+  $('submitBtn').disabled = false;
+  $('submitBtn').textContent = '제출';
+  $('status').textContent = `라운드 ${data.round} - 카드를 3/5/5로 나눠 제출하세요`;
+});
+
+socket.on('round-result', data => {
+  renderResults(data);
+});
+
+socket.on('error-msg', msg => {
+  alert(msg);
+});
+
+$('startBtn').onclick = () => {
+  socket.emit('start-game');
+};
+
+// ===== 플레이어 렌더링 =====
+function renderPlayers(){
+  if(!roomState) return;
+  $('players').innerHTML = roomState.players.map(p => 
+    `<div>${p.name} ${p.submitted ? '✅ 제출완료' : '⏳ 대기중'}</div>`
+  ).join('');
+}
+
+// ===== 카드 정렬 =====
+function sortHand(){
+  const cmp = (a,b) => {
+    let r = 0;
+    if(sortMode === 'suit'){
+      r = SUIT_ORDER[a.s] - SUIT_ORDER[b.s];
+      if(r === 0) r = RANK_VALUE[a.r] - RANK_VALUE[b.r];
+    } else {
+      r = RANK_VALUE[a.r] - RANK_VALUE[b.r];
+      if(r === 0) r = SUIT_ORDER[a.s] - SUIT_ORDER[b.s];
+    }
+    return sortAsc ? r : -r;
+  };
+  myHand.sort(cmp);
+}
+
+function updateSortButtons(){
+  $('sortSuit').classList.toggle('active', sortMode === 'suit');
+  $('sortRank').classList.toggle('active', sortMode === 'rank');
+  $('sortToggle').textContent = sortAsc ? '오름차순 ↑' : '내림차순 ↓';
+}
+$('sortSuit').onclick = () => { sortMode = 'suit'; sortHand(); renderHand(); updateSortButtons(); };
+$('sortRank').onclick = () => { sortMode = 'rank'; sortHand(); renderHand(); updateSortButtons(); };
+$('sortToggle').onclick = () => { sortAsc = !sortAsc; sortHand(); renderHand(); updateSortButtons(); };
+
+// ===== 드래그 앤 드롭 =====
+function makeCardEl(card, fromZone){
+  const red = card.s === 'H' || card.s === 'D';
+  const div = document.createElement('div');
+  div.className = 'card' + (red ? ' red' : '');
+  div.textContent = card.r + SUIT_SYMBOL[card.s];
+  div.draggable = !submitted;
+  div.dataset.key = cardKey(card);
+
+  div.addEventListener('dragstart', e => {
+    if(submitted) { e.preventDefault(); return; }
+    if(draggingKey && draggingKey !== cardKey(card)) { e.preventDefault(); return; }
+    draggingKey = cardKey(card);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify({ key: cardKey(card), fromZone }));
+    div.classList.add('dragging');
+  });
+  
+  div.addEventListener('dragend', () => {
+    draggingKey = null;
+    div.classList.remove('dragging');
+  });
+
+  div.addEventListener('dblclick', e => {
+    if(submitted || fromZone === 'hand') return;
+    e.preventDefault();
+    const idx = arrangement[fromZone].findIndex(c => cardKey(c) === cardKey(card));
+    if(idx === -1) return;
+    const [moved] = arrangement[fromZone].splice(idx, 1);
+    myHand.push(moved);
+    sortHand();
+    renderAll();
+  });
+
+  return div;
+}
+
+function addTo(zone, card){
+  if(zone === 'hand') { myHand.push(card); return true; }
+  const limit = zone === 'front' ? 3 : 5;
+  if(arrangement[zone].length >= limit) return false;
+  arrangement[zone].push(card);
+  return true;
+}
+
+function handleDrop(zone, dataStr){
+  if(submitted) return;
+  let data; try { data = JSON.parse(dataStr); } catch { return; }
+  if(!data || !data.key) return;
+
+  let card = null;
+  if(data.fromZone === 'hand'){
+    const i = myHand.findIndex(c => cardKey(c) === data.key);
+    if(i === -1) return;
+    card = myHand.splice(i, 1)[0];
+  } else {
+    const i = arrangement[data.fromZone].findIndex(c => cardKey(c) === data.key);
+    if(i === -1) return;
+    card = arrangement[data.fromZone].splice(i, 1)[0];
+  }
+
+  const ok = addTo(zone, card);
+  if(!ok){
+    if(data.fromZone === 'hand') myHand.push(card);
+    else arrangement[data.fromZone].push(card);
+    sortHand();
+  }
+  renderAll();
+}
+
+function attachDropTarget(el, zone){
+  el.addEventListener('dragover', e => {
+    if(submitted || !draggingKey) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drop-target');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.classList.remove('drop-target');
+    handleDrop(zone, e.dataTransfer.getData('text/plain'));
+  });
+}
+
+function renderHand(){
+  const box = $('myHand'); box.innerHTML = '';
+  myHand.forEach(card => box.appendChild(makeCardEl(card, 'hand')));
+  attachDropTarget(box, 'hand');
+}
+
+function renderSlots(){
+  document.querySelectorAll('.slot').forEach(slot => {
+    const zone = slot.dataset.zone;
+    const box = slot.querySelector('.cards');
+    box.innerHTML = '';
+    arrangement[zone].forEach(card => box.appendChild(makeCardEl(card, zone)));
+    attachDropTarget(box, zone);
+  });
+}
+
+function renderAll(){ renderHand(); renderSlots(); }
+
+// ===== 제출 =====
+$('submitBtn').onclick = () => {
+  if(submitted) return;
+  if(arrangement.front.length !== 3 || arrangement.middle.length !== 5 || arrangement.back.length !== 5){
+    return alert('카드를 3/5/5로 정확히 나눠주세요');
+  }
+  socket.emit('submit', arrangement);
+  submitted = true;
+  $('submitBtn').disabled = true;
+  $('submitBtn').textContent = '제출 완료 (대기 중)';
+  $('status').textContent = '다른 플레이어를 기다리는 중...';
+  renderAll();
+};
+
+// ===== 결과 렌더링 =====
+function renderResults(data){
+  const { names, hands, round, pairs, myIndex } = data;
+  const html = [];
+
+  html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">🃏 카드 공개</h2>`);
+  names.forEach((n, idx) => {
+    const h = hands[idx];
+    const blocks = [['앞',h.front],['중간',h.middle],['뒤',h.back]];
+    html.push(`<div class="reveal-block"><h3>${n} ${idx===myIndex?'(나)':''}</h3>`);
+    for(const [label, cards] of blocks){
+      html.push(`<div class="reveal-row"><span class="label">${label}</span>`);
+      cards.forEach(c => {
+        const red = c.s === 'H' || c.s === 'D';
+        html.push(`<div class="card small${red?' red':''}">${c.r}${SUIT_SYMBOL[c.s]}</div>`);
+      });
+      html.push(`</div>`);
+    }
+    html.push(`</div>`);
+  });
+
+  html.push(`<h2 style="font-size:16px;margin:20px 0 10px;">📊 이번 라운드 점수</h2>`);
+  html.push(`<div class="reveal-block"><table class="score-table">
+    <tr><th>플레이어</th><th>이번 라운드</th></tr>`);
+  names.forEach((n, i) => {
+    const cls = round[i] > 0 ? 'win' : round[i] < 0 ? 'lose' : '';
+    const str = round[i] >= 0 ? '+' + round[i] : String(round[i]);
+    html.push(`<tr><td>${n}</td><td class="${cls}">${str}</td></tr>`);
+  });
+  html.push(`</table></div>`);
+
+  $('result').innerHTML = html.join('');
+  $('status').textContent = '라운드 종료!';
+  $('playArea').style.display = 'none';
+}
+</script>
+</body>
+</html>
