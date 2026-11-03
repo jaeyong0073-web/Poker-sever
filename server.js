@@ -199,23 +199,39 @@ function publicRoom(room){
 
 function startRound(room){
   const deck = shuffle(createDeck());
-  const count = room.players.length;
+  const humanCount = room.players.length;
+  
+  // 1. 인간 플레이어들에게 카드 13장씩 분배
   room.players.forEach((p,i)=>{
     p.hand = deck.slice(i*13, i*13+13);
     p.arrangement = null;
     p.submitted = false;
   });
-  // 4명 미만이면 AI로 채움
+
+  // 2. 부족한 자리는 AI 카드로 채움 (무조건 4명이 되게)
   room.aiHands = [];
-  for(let i=count;i<4;i++) room.aiHands.push(deck.slice(i*13,i*13+13));
+  for(let i=humanCount; i<4; i++) {
+    room.aiHands.push(deck.slice(i*13, i*13+13));
+  }
+
   room.started = true;
   room.round++;
-  // 각 플레이어에게 자기 패만 개별 전송
+
+  // 3. 각 인간 플레이어에게 자기 패만 보여줌
   room.players.forEach(p=>{
     io.to(p.id).emit('your-hand', { hand: p.hand, round: room.round });
   });
-  io.to(room.players[0].id).emit('room-update', publicRoom(room));
+
+  // 4. 화면 갱신
   room.players.forEach(p=>io.to(p.id).emit('room-update', publicRoom(room)));
+  
+  // 5. 혼자일 경우, 시작하자마자 AI들이 자동으로 제출하도록 처리
+  // (인간이 1명뿐일 때 바로 라운드가 끝나도록 유도)
+  if (humanCount === 1) {
+    // AI들이 이미 제출한 것으로 상태 변경
+    room.players[0].submitted = false; // 인간은 아직 제출 안 함
+    // (endRound는 인간이 제출했을 때 호출됨)
+  }
 }
 
 function endRound(room){
